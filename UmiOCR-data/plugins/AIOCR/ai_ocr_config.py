@@ -147,6 +147,33 @@ globalOptions = {
         ],
         "toolTip": tr("选择当前要使用的AI服务商。所有服务商的配置都会保存，切换时无需重新输入。"),
     },
+
+    # 第二AI服务商配置
+    "a_provider2": {
+        "title": tr("第二AI服务商 (备用快捷键)"),
+        "default": "openai",
+        "optionsList": [
+            ["openai", "OpenAI"],
+            ["gemini", "Google Gemini"],
+            ["xai", "xAI Grok"],
+            ["openrouter", "OpenRouter"],
+            ["siliconflow", "硅基流动 (SiliconFlow)"],
+            ["doubao", "豆包 (Doubao)"],
+            ["alibaba", "阿里云百炼 (Alibaba)"],
+            ["zhipu", "智谱AI (Z.AI)"],
+            ["ollama", "Ollama (本地)"],
+            ["groq", "Groq"],
+            ["infinigence", "无问芯穷 (Infinigence)"],
+            ["mistral", "Mistral AI"],
+            ["modelscope", "魔搭 (ModelScope)"],
+            ["intern", "浦源书生 (Intern)"],
+            ["paddle", "PaddleOCR (在线)"],
+            ["paddle_vl", "PaddleOCR-VL (在线)"],
+            ["paddle_vl_15", "PaddleOCR-VL-1.5 (在线)"],
+            ["pp_structure_v3", "PP-StructureV3 (在线)"],
+        ],
+        "toolTip": tr("选择备用AI服务商。配合第二快捷键使用，可与主服务商同时运行。"),
+    },
     "a_timeout": {
         "title": tr("请求超时"),
         "default": 30,

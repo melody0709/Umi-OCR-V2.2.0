@@ -39,3 +39,6 @@ UmiOCR-data/temp_doc
 # 排除缓存
 **__pycache__**
 UmiOCR-data/i18n/_
+
+# 用户配置文件（含API密钥，不应提交到仓库）
+UmiOCR-data/.settings

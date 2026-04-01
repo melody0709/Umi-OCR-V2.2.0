@@ -34,6 +34,7 @@ class BaseProvider:
         self.model = model
         self.timeout = timeout
         self.proxy_url = proxy_url
+        self.provider_name = "unknown"
         
     def get_default_api_base(self):
         """获取默认API基础URL"""
@@ -1141,7 +1142,14 @@ class ProviderFactory:
         if not model:
             raise ValueError(f"请在配置中指定 {provider_name} 的模型名称")
             
-        return provider_class(api_key, api_base, model, timeout, proxy_url)
+        instance = provider_class(api_key, api_base, model, timeout, proxy_url)
+        instance.provider_name = provider_name
+        return instance
+    
+    @staticmethod
+    def get_provider_name(provider_instance):
+        """从 provider 实例获取服务商名称"""
+        return getattr(provider_instance, 'provider_name', 'unknown')
 
 # HTTP请求工具类
 class HTTPClient:
@@ -1268,7 +1276,9 @@ class HTTPClient:
                 'text': error_text
             }
         except Exception as e:
-            raise Exception(f"Multipart HTTP请求失败: {str(e)}")
+            error_type = type(e).__name__
+            error_msg = str(e) if str(e) else repr(e)
+            raise Exception(f"Multipart HTTP请求失败 [{error_type}]: {error_msg}")
     
     def post(self, url, headers=None, data=None):
         """发送POST请求"""
@@ -1384,12 +1394,15 @@ class HTTPClient:
                 'text': error_text
             }
         except Exception as e:
-            raise Exception(f"HTTP请求失败: {str(e)}")
+            error_type = type(e).__name__
+            error_msg = str(e) if str(e) else repr(e)
+            raise Exception(f"HTTP请求失败 [{error_type}]: {error_msg}")
 
 # 主API类
 class Api:
     def __init__(self, globalArgd):
         self.provider = None
+        self.provider2 = None
         self.http_client = None
         # 兼容新旧键名
         self.max_concurrent = globalArgd.get("z_max_concurrent", globalArgd.get("max_concurrent", 3))
@@ -1442,6 +1455,25 @@ class Api:
             self.provider = ProviderFactory.create_provider(
                 provider_name, api_key, api_base if api_base else None, model, timeout, proxy_url
             )
+            
+            # 创建第二个Provider（备用快捷键用）
+            provider2_name = self.global_config.get("a_provider2", "openai")
+            api_key2 = self.global_config.get(f"{provider2_name}_api_key", "")
+            model2 = self.global_config.get(f"{provider2_name}_model", "")
+            api_base2 = self.global_config.get(f"{provider2_name}_api_base", "")
+            
+            self.provider2 = None
+            if provider2_name and api_key2 and model2:
+                try:
+                    self.provider2 = ProviderFactory.create_provider(
+                        provider2_name, api_key2, api_base2 if api_base2 else None, model2, timeout, proxy_url
+                    )
+                    print(f"AIOCR 备用服务商初始化完成: {provider2_name}")
+                except Exception as e:
+                    print(f"AIOCR 备用服务商初始化失败: {e}")
+            else:
+                print(f"AIOCR 备用服务商未配置（provider={provider2_name}, key={'已设置' if api_key2 else '未设置'}, model={'已设置' if model2 else '未设置'}）")
+            
             if provider_name == "groq":
                 allowed_models = {
                     "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -1937,7 +1969,12 @@ class Api:
         return results
     def runBase64(self, imageBase64):
         """处理base64图片"""
+        original_provider = self.provider
         try:
+            use_provider2 = self.local_config.get('use_provider2', False)
+            if use_provider2 and self.provider2:
+                self.provider = self.provider2
+            
             # 根据识别策略选择流程（不再需要启用开关）
             if hasattr(self, 'local_config'):
                 strategy = self.local_config.get('dual_strategy', 'ai_high_precision_with_coordinates')
@@ -1964,6 +2001,8 @@ class Api:
             return self._run_ocr(processed_base64, self.local_config)
         except Exception as e:
             return self._create_error_result(f"OCR处理失败: {str(e)}")
+        finally:
+            self.provider = original_provider
     
     def _preprocess_image(self, image_base64):
         """预处理图像"""
@@ -2093,15 +2132,11 @@ class Api:
     
     def _send_request(self, image_base64, prompt):
         """发送API请求"""
-        # 关键日志：记录提供商、模型与超时，便于定位卡顿
-        try:
-            provider_name = self.global_config.get("a_provider", self.global_config.get("provider", "unknown"))
-        except Exception:
-            provider_name = "unknown"
-        print(f"[AIOCR] 调用 {provider_name} / 模型 {getattr(self.provider, 'model', None)} / 超时 {getattr(self.http_client, 'timeout', None)}s")
-        # 构建请求URL
+        provider_name = getattr(self.provider, 'provider_name', 'unknown')
+        model_name = getattr(self.provider, 'model', None)
         api_base = self.provider.api_base or self.provider.get_default_api_base()
-        provider_name = self.global_config.get("a_provider", self.global_config.get("provider", "openai"))
+        use_p2 = self.local_config.get('use_provider2', False) if hasattr(self, 'local_config') else False
+        print(f"[AIOCR] 调用 {provider_name} / 模型 {model_name} / 超时 {getattr(self.http_client, 'timeout', None)}s / 备用={use_p2} / URL基={api_base}")
         
         if provider_name == "gemini":
             model = self.provider.model or self.provider.get_default_model()

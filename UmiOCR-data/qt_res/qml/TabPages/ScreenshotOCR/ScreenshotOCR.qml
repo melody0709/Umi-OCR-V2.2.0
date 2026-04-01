@@ -28,6 +28,22 @@ TabPage {
         qmlapp.imageManager.screenshot(screenshotEnd)
     }
 
+    // 备用快捷键 - 截图（使用第二AI服务商）
+    function screenshotAlt() {
+        qmlapp.imageManager.screenshot(function(clipID) {
+            popMainWindow()
+            if(!clipID) {
+                tabPage.callPy("ocrImgID", undefined, undefined)
+                return
+            }
+            const configDict = configsComp.getValueDict()
+            configDict["ocr.AIOCR.use_provider2"] = true
+            tabPage.callPy("ocrImgID", clipID, configDict)
+            qmlapp.tab.showTabPageObj(tabPage)
+            imageText.showImgID(clipID)
+        })
+    }
+
     // 截图完毕
     function screenshotEnd(clipID) {
         popMainWindow()
@@ -85,6 +101,34 @@ TabPage {
         }
     }
 
+    // 备用快捷键 - 粘贴（使用第二AI服务商）
+    function pasteAlt() {
+        popMainWindow()
+        const res = qmlapp.imageManager.getPaste()
+        if(res.error) {
+            const t = qsTr("获取剪贴板异常")
+            qmlapp.popup.simple(t, res.error)
+            tabPage.callPy("ocrImgID", `[Error] ${t} ${res.error}`, undefined)
+            return
+        }
+        if(res.text) {
+            const t = qsTr("剪贴板中为文本")
+            qmlapp.popup.simple(t, res.text)
+            tabPage.callPy("ocrImgID", `[Warning] ${t}`, undefined)
+            return
+        }
+        qmlapp.tab.showTabPageObj(tabPage)
+        if(res.imgID) {
+            imageText.showImgID(res.imgID)
+            const configDict = configsComp.getValueDict()
+            configDict["ocr.AIOCR.use_provider2"] = true
+            tabPage.callPy("ocrImgID", res.imgID, configDict)
+        }
+        else if(res.paths) {
+            ocrPathsAlt(res.paths)
+        }
+    }
+
     // 异步扫描一批图像路径
     function ocrPaths(paths) {
         qmlapp.asynFilesLoader.run(paths,"image",false,onAddImages)
@@ -100,6 +144,22 @@ TabPage {
         qmlapp.popup.simple(qsTr("导入%1条图片路径").arg(paths.length), "", simpleType)
         imageText.showPath(paths[0])
         tabPage.callPy("ocrPaths", paths, configDict)
+    }
+
+    // 备用快捷键 - 批量路径（使用第二AI服务商）
+    function ocrPathsAlt(paths) {
+        qmlapp.asynFilesLoader.run(paths,"image",false,function(validPaths) {
+            if(!validPaths || validPaths.length < 1) {
+                qmlapp.popup.simple(qsTr("无有效图片"), "")
+                return
+            }
+            const configDict = configsComp.getValueDict()
+            configDict["ocr.AIOCR.use_provider2"] = true
+            const simpleType = configDict["other.simpleNotificationType"]
+            qmlapp.popup.simple(qsTr("导入%1条图片路径").arg(validPaths.length), "", simpleType)
+            imageText.showPath(validPaths[0])
+            tabPage.callPy("ocrPaths", validPaths, configDict)
+        })
     }
 
     // 停止所有任务
@@ -150,6 +210,8 @@ TabPage {
         qmlapp.pubSub.subscribeGroup("<<reScreenshot>>", this, "reScreenshot", ctrlKey)
         qmlapp.pubSub.subscribeGroup("<<screenshot>>", this, "screenshot", ctrlKey)
         qmlapp.pubSub.subscribeGroup("<<paste>>", this, "paste", ctrlKey)
+        qmlapp.pubSub.subscribeGroup("<<screenshot_alt>>", this, "screenshotAlt", ctrlKey)
+        qmlapp.pubSub.subscribeGroup("<<paste_alt>>", this, "pasteAlt", ctrlKey)
         qmlapp.systemTray.addMenuItem("<<screenshot>>", qsTr("屏幕功能"), screenshot)
         qmlapp.systemTray.addMenuItem("<<paste>>", qsTr("粘贴图片"), paste)
     }

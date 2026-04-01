@@ -46,6 +46,22 @@ Configs {
                 "default": "",
                 "eventTitle": "<<reScreenshot>>",
             },
+            "screenshot_alt": {
+                "title": qsTr("屏幕截图 (备用AI)"),
+                "toolTip": qsTr("使用第二AI服务商进行识别"),
+                "type": "hotkey",
+                "default": UmiAbout.app.system==="win32" ?
+                            "win+alt+x" : "alt+x",
+                "eventTitle": "<<screenshot_alt>>",
+            },
+            "paste_alt": {
+                "title": qsTr("粘贴图片 (备用AI)"),
+                "toolTip": qsTr("使用第二AI服务商进行识别"),
+                "type": "hotkey",
+                "default": UmiAbout.app.system==="win32" ?
+                            "win+alt+b" : "alt+b",
+                "eventTitle": "<<paste_alt>>",
+            },
         },
 
         "action": {

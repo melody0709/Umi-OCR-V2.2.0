@@ -20,6 +20,19 @@ git clone --single-branch --branch [分支名] https://github.com/hiroi-sora/Umi
 
 # 更新日志 CHANGE LOG
 
+### v2.1.7 `2026.4.1`
+
+分支名：`main`
+
+- 新增：第二AI服务商 + 备用快捷键。支持同时配置两个不同的AI服务商，分别绑定独立快捷键
+  - 全局设置新增「第二AI服务商 (备用快捷键)」选项，紧跟在「当前AI服务商」之后
+  - 新增快捷键 `Win+Alt+X`（备用截图识别）和 `Win+Alt+B`（备用粘贴识别）
+  - 两个服务商各自独立初始化，可同时运行互不干扰
+- 修复：备用快捷键调用时 URL 构建错误（`unknown url type: '/chat/completions'`）
+  - 根因：`_send_request` 从配置读取服务商名，但实际 provider 实例已切换，导致 API base 为空
+  - 修复：在 provider 实例上保存 `provider_name`，URL 路由改用实例属性而非配置字典
+- 优化：HTTP 请求异常信息输出错误类型和详细原因，便于排查
+
 ### v2.1.6 `2026.3.31`
 
 分支名：`main`
