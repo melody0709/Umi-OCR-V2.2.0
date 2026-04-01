@@ -1,4 +1,143 @@
-# diff.md — v2.1.7 源码修改说明
+# diff.md — v2.1.9 源码修改说明
+
+## v2.1.9 修改文件清单
+
+### 1. 截图历史保留开关与启动清理逻辑
+
+#### 1.1 `UmiOCR-data/py_src/utils/pre_configs.py`
+
+**新增**：`screenshot_persist_history` 预配置项
+
+```python
+"screenshot_persist_history": False,  # 截图历史记录与 temp_doc 保留
+```
+
+**兼容性修改**：读取旧版 `.pre_settings` 时，缺失的新键将自动保留默认值，不再抛出异常。
+
+#### 1.2 `UmiOCR-data/py_src/utils/global_configs_connector.py`
+
+**新增**：两个桥接接口，用于让 QML 全局设置与启动级预配置同步。
+
+```python
+@Slot(result=bool)
+def getScreenshotPersistHistory(self):
+    return bool(pre_configs.getValue("screenshot_persist_history"))
+
+@Slot(bool)
+def setScreenshotPersistHistory(self, flag):
+    pre_configs.setValue("screenshot_persist_history", bool(flag))
+```
+
+#### 1.3 `UmiOCR-data/py_src/server/doc_server.py`
+
+**修改**：启动文档服务时，不再无条件清空 `temp_doc`。
+
+```python
+if os.path.exists(UPLOAD_DIR):
+    if not pre_configs.getValue("screenshot_persist_history"):
+        shutil.rmtree(UPLOAD_DIR)
+        os.makedirs(UPLOAD_DIR)
+else:
+    os.makedirs(UPLOAD_DIR)
+```
+
+#### 1.4 `UmiOCR-data/qt_res/qml/Configs/GlobalConfigs.qml`
+
+**新增**：全局设置项 `screenshot.persistHistory`
+
+```javascript
+"persistHistory": {
+    "title": qsTr("保留截图历史记录"),
+    "default": globalConfigConn.getScreenshotPersistHistory(),
+    "toolTip": qsTr("启用后，重启软件时保留截图页记录，并且启动时不清空 temp_doc；关闭后恢复现有逻辑，下次启动时清空。"),
+}
+```
+
+---
+
+### 2. 截图 OCR 历史记录持久化
+
+#### 2.1 `UmiOCR-data/qt_res/qml/TabPages/ScreenshotOCR/ScreenshotOcrConfigs.qml`
+
+**新增**：隐藏配置项 `historyRecords`，用于将截图页历史记录写入 `.settings`。
+
+```javascript
+"historyRecords": {
+    "type": "var",
+    "default": [],
+},
+```
+
+#### 2.2 `UmiOCR-data/qt_res/qml/Widgets/ResultLayout/ResultsTableView.qml`
+
+**新增**：历史记录的持久化读写能力。
+
+- 初始化时从 `historyRecords` 读取已保存的 OCR 记录。
+- 新增、编辑、删除记录时，会自动同步回配置。
+- 写入采用 500ms 防抖，避免每次按键都直接落盘。
+
+核心接口：
+
+```javascript
+function initPersistedHistory(configs, key, enabled)
+function updatePersistHistory(enabled)
+function savePersistedHistory()
+function loadPersistedHistory()
+```
+
+#### 2.3 `UmiOCR-data/qt_res/qml/TabPages/ScreenshotOCR/ScreenshotOCR.qml`
+
+**新增**：页面初始化时恢复历史记录，并在全局开关变化时同步切换持久化行为。
+
+---
+
+### 3. 截图文件历史与点击回显
+
+#### 3.1 `UmiOCR-data/py_src/image_controller/image_provider.py`
+
+**新增**：`saveImageToHistory()`
+
+```python
+def saveImageToHistory(fromPath, subdir="screenshot_history"):
+    history_dir = os.path.abspath(os.path.join(".", "temp_doc", subdir))
+    os.makedirs(history_dir, exist_ok=True)
+    filename = f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.png"
+    save_path = os.path.join(history_dir, filename)
+```
+
+作用：将内存中的截图保存到 `UmiOCR-data/temp_doc/screenshot_history/`，并返回规范化后的本地路径。
+
+#### 3.2 `UmiOCR-data/py_src/image_controller/image_connector.py`
+
+**新增**：QML 可调用接口 `saveImageToHistory()`。
+
+#### 3.3 `UmiOCR-data/qt_res/qml/ImageManager/ImageManager.qml`
+
+**新增**：对外暴露 `saveImageToHistory` 方法。
+
+#### 3.4 `UmiOCR-data/qt_res/qml/Widgets/ResultLayout/ResultsTableView.qml`
+
+**新增**：`itemActivated` 回调和 `activateItem()`。
+
+记录面板中单击某条记录时，会把当前记录对象回传给页面层，而不仅仅是处理复制/选区逻辑。
+
+#### 3.5 `UmiOCR-data/qt_res/qml/TabPages/ScreenshotOCR/ScreenshotOCR.qml`
+
+**新增**：
+
+- `resolveHistoryImagePath(imgID, imgPath)`：在新截图 OCR 完成时，将截图保存到历史目录。
+- `showHistoryRecord(item)`：点击历史记录时，从 `source` 中解析 `historyImagePath`，并在左侧图片窗口展示对应截图与 OCR 文本框。
+
+数据写入方式：
+
+```javascript
+res.imgPath = imgPath || ""
+res.historyImagePath = resolveHistoryImagePath(imgID, imgPath)
+```
+
+---
+
+## 旧版说明（v2.1.7）
 
 ## 修改文件清单
 

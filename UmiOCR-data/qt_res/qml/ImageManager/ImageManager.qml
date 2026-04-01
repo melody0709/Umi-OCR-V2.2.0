@@ -20,6 +20,8 @@ Item {
     readonly property var openImage: imageConnector.openImage
     // 保存图片
     readonly property var saveImage: imageConnector.saveImage
+    // 保存图片到截图历史目录
+    readonly property var saveImageToHistory: imageConnector.saveImageToHistory
     // 获取剪贴板
     readonly property var getPaste: imageConnector.getPaste
 

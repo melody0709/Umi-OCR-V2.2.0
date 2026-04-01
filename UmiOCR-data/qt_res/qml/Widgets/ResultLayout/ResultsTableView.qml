@@ -12,6 +12,116 @@ Item {
     // ========================= 【对外接口】 =========================
 
     property alias ctrlBar: ctrlBar // 控制栏的引用
+    property bool persistHistory: false
+    property var persistConfigs: undefined
+    property string persistKey: ""
+    property bool persistReady: false
+    property var persistCache: []
+    property var itemActivated: undefined
+
+    function activateItem(index) {
+        if(index < 0 || typeof itemActivated !== "function") return
+        itemActivated(resultsModel.get(index))
+    }
+
+    function _canPersist() {
+        return persistReady
+            && persistHistory
+            && persistConfigs !== undefined
+            && persistKey !== ""
+            && typeof persistConfigs.setValue === "function"
+    }
+
+    function _getPersistSnapshot() {
+        let records = []
+        for (let i = 0, l = resultsModel.count; i < l; i++) {
+            const item = resultsModel.get(i)
+            records.push({
+                "status__": item.status__,
+                "title": item.title,
+                "datetime": item.datetime,
+                "resText": item.resText,
+                "timestamp": item.timestamp,
+                "source": item.source,
+            })
+        }
+        return records
+    }
+
+    function flushPersistedHistory() {
+        if(!_canPersist()) return
+        persistConfigs.setValue(persistKey, persistCache, false, true)
+    }
+
+    function savePersistedHistory() {
+        if(!_canPersist()) return
+        persistCache = _getPersistSnapshot()
+        persistTimer.restart()
+    }
+
+    function clearPersistedHistory() {
+        persistTimer.stop()
+        persistCache = []
+        if(!persistConfigs || persistKey === "" || typeof persistConfigs.setValue !== "function") return
+        persistConfigs.setValue(persistKey, [], false, true)
+    }
+
+    function loadPersistedHistory() {
+        resultsModel.clear()
+        if(!persistHistory || !persistConfigs || persistKey === "" || typeof persistConfigs.getValue !== "function")
+            return
+        const saved = persistConfigs.getValue(persistKey)
+        if(!saved || saved.length === undefined) return
+        for (let i = 0, l = saved.length; i < l; i++) {
+            const item = saved[i]
+            resultsModel.append({
+                "status__": item.status__ || "text",
+                "title": item.title || "",
+                "datetime": item.datetime || "",
+                "resText": item.resText || "",
+                "timestamp": item.timestamp || 0,
+                "selectL_": -1,
+                "selectR_": -1,
+                "selectUpdate_": 0,
+                "source": item.source || "",
+            })
+        }
+        if(autoToBottom && resultsModel.count > 0) {
+            tableView.toBottom()
+        }
+        persistCache = _getPersistSnapshot()
+    }
+
+    function initPersistedHistory(configs, key, enabled) {
+        persistConfigs = configs
+        persistKey = key
+        persistHistory = enabled
+        persistReady = true
+        if(persistHistory) {
+            loadPersistedHistory()
+        }
+        else {
+            clearPersistedHistory()
+        }
+    }
+
+    function updatePersistHistory(enabled) {
+        persistHistory = enabled
+        if(!persistReady) return
+        if(persistHistory) {
+            savePersistedHistory()
+        }
+        else {
+            clearPersistedHistory()
+        }
+    }
+
+    Timer {
+        id: persistTimer
+        interval: 500
+        repeat: false
+        onTriggered: flushPersistedHistory()
+    }
 
     // 添加一条OCR结果。元素：
     // timestamp 时间戳，秒为单位
@@ -75,6 +185,7 @@ Item {
         if(autoToBottom) {
             tableView.toBottom()
         }
+        savePersistedHistory()
         return resText
     }
 
@@ -176,6 +287,7 @@ Item {
                 if(resText===textMain) return // 临时措施：排除文本内容无变化的修改
 
                 resultsModel.setProperty(index, "resText", textMain) // 文字改变时写入列表
+                savePersistedHistory()
             }
             copy: tableMouseArea.selectCopy
             copyAll: tableMouseArea.selectAllCopy
@@ -367,12 +479,14 @@ Item {
             const l = ri-li+1
             resultsModel.remove(li, l)
             initIndexes() // 重设 Index
+            savePersistedHistory()
             qmlapp.popup.simple(qsTr("删除%1条记录").arg(l), "")
         }
         // 删除全部
         function selectAllDel() {
             resultsModel.clear()
             initIndexes() // 重设 Index
+            savePersistedHistory()
             qmlapp.popup.simple(qsTr("清空记录"), "")
         }
         // 按下
@@ -387,11 +501,13 @@ Item {
             else if(info.where === -1) { // 标题栏区域
                 endIndex = startIndex = info.index
                 startTextIndex = endTextIndex = -1
+                activateItem(info.index)
                 selectCopy()
                 initIndexes() // 复制完后，清空index记录
             }
             else if(info.where >= 0) { // 文本区域
                 selectUpdateAdd()
+                activateItem(info.index)
                 // 移除现有的所有选区
                 for (let i = 0, l=resultsModel.count; i < l; i++) {
                     let element = resultsModel.get(i)

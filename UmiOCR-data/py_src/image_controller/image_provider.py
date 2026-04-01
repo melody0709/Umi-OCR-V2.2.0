@@ -3,6 +3,7 @@
 # ==========================================================
 
 import os
+import time
 from uuid import uuid4  # 唯一ID
 from urllib.parse import unquote
 from PySide2.QtCore import Qt, QByteArray, QBuffer
@@ -232,3 +233,14 @@ def saveImage(fromPath, toPath):
         return f"[Success] {toPath}"
     except Exception as e:
         return f"[Error] can't save: {e}\n{fromPath}\n{toPath}"
+
+
+def saveImageToHistory(fromPath, subdir="screenshot_history"):
+    history_dir = os.path.abspath(os.path.join(".", "temp_doc", subdir))
+    os.makedirs(history_dir, exist_ok=True)
+    filename = f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.png"
+    save_path = os.path.join(history_dir, filename)
+    res = saveImage(fromPath, save_path)
+    if isinstance(res, str) and res.startswith("[Success]"):
+        return save_path.replace("\\", "/")
+    return res

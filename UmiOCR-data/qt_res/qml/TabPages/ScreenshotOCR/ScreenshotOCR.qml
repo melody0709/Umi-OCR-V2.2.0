@@ -204,6 +204,13 @@ TabPage {
 
     Component.onCompleted: {
         eventSub() // 订阅事件
+        Qt.callLater(()=>{
+            resultsTableView.initPersistedHistory(
+                configsComp,
+                "historyRecords",
+                qmlapp.globalConfigs.getValue("screenshot.persistHistory")
+            )
+        })
     }
     // 订阅事件
     function eventSub() {
@@ -212,6 +219,7 @@ TabPage {
         qmlapp.pubSub.subscribeGroup("<<paste>>", this, "paste", ctrlKey)
         qmlapp.pubSub.subscribeGroup("<<screenshot_alt>>", this, "screenshotAlt", ctrlKey)
         qmlapp.pubSub.subscribeGroup("<<paste_alt>>", this, "pasteAlt", ctrlKey)
+        qmlapp.pubSub.subscribeGroup("<<screenshotPersistHistoryChanged>>", this, "onPersistHistoryChanged", ctrlKey)
         qmlapp.systemTray.addMenuItem("<<screenshot>>", qsTr("屏幕功能"), screenshot)
         qmlapp.systemTray.addMenuItem("<<paste>>", qsTr("粘贴图片"), paste)
     }
@@ -222,6 +230,10 @@ TabPage {
         qmlapp.systemTray.delMenuItem("<<paste>>")
     }
 
+    function onPersistHistoryChanged(flag) {
+        resultsTableView.updatePersistHistory(flag)
+    }
+
     // ========================= 【python调用qml】 =========================
 
     // 设置任务状态
@@ -229,8 +241,54 @@ TabPage {
         msnState = flag
     }
 
+    function buildHistoryImageSource(imgID) {
+        if(!imgID)
+            return ""
+        return `image://pixmapprovider/history/${imgID}`
+    }
+
+    function resolveHistoryImagePath(imgID, imgPath) {
+        if(imgPath)
+            return imgPath
+        if(!imgID)
+            return ""
+        if(!qmlapp.globalConfigs.getValue("screenshot.persistHistory"))
+            return ""
+        const savedPath = qmlapp.imageManager.saveImageToHistory(buildHistoryImageSource(imgID))
+        if(savedPath && !savedPath.startsWith("[Error]"))
+            return savedPath
+        console.error(`【Error】保存截图历史图片失败：${savedPath}`)
+        return ""
+    }
+
+    function showHistoryRecord(item) {
+        if(!item || !item.source)
+            return
+        let data = undefined
+        try {
+            data = JSON.parse(item.source)
+        }
+        catch(e) {
+            console.error(`【Error】解析历史记录源数据失败：${e}`)
+            return
+        }
+        if(!data)
+            return
+        const historyImagePath = data.historyImagePath || data.imgPath || ""
+        if(!historyImagePath) {
+            qmlapp.popup.simple(qsTr("未找到历史截图"), "")
+            return
+        }
+        imageText.showPath(historyImagePath)
+        imageText.showTextBoxes(data)
+        if(tabPanel.indexChangeNum < 2)
+            tabPanel.currentIndex = 1
+    }
+
     // 获取一个OCR的返回值
     function onOcrGet(res, imgID="", imgPath="") {
+        res.imgPath = imgPath || ""
+        res.historyImagePath = resolveHistoryImagePath(imgID, imgPath)
         // 添加到结果
         const resText = resultsTableView.addOcrResult(res)
         if(imgID) // 图片类型
@@ -547,6 +605,7 @@ TabPage {
                     id: resultsTableView
                     anchors.fill: parent
                     visible: false
+                    itemActivated: showHistoryRecord
                 }
 
                 tabsModel: [

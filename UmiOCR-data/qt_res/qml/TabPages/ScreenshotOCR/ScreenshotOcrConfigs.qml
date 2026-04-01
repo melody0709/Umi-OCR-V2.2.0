@@ -12,6 +12,11 @@ Configs {
         // OCR参数
         "ocr": qmlapp.globalConfigs.ocrManager.deploy(this, "ocr"), 
 
+        "historyRecords": {
+            "type": "var",
+            "default": [],
+        },
+
         // 后处理
         "tbpu": {
             "title": qsTr("OCR文本后处理"),

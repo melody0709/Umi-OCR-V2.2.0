@@ -183,6 +183,17 @@ Configs {
             "title": qsTr("截图"),
             "type": "group",
 
+            "persistHistory": {
+                "title": qsTr("保留截图历史记录"),
+                "default": globalConfigConn.getScreenshotPersistHistory(),
+                "toolTip": qsTr("启用后，重启软件时保留截图页记录，并且启动时不清空 temp_doc；关闭后恢复现有逻辑，下次启动时清空。"),
+                "onChanged": (flag, old)=>{
+                    globalConfigConn.setScreenshotPersistHistory(flag)
+                    if(old !== undefined)
+                        qmlapp.pubSub.publish("<<screenshotPersistHistoryChanged>>", flag)
+                },
+            },
+
             "hideWindow": {
                 "title": qsTr("截图前隐藏主窗口"),
                 "toolTip": qsTr("截图前，如果主窗口处于前台，则隐藏主窗口\n将会延时等待主窗口关闭"),

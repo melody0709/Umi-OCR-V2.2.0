@@ -12,6 +12,7 @@ _Configs = {
     "server_port": 1224,  # 服务端口号
     "last_pid": -1,  # 最后一次运行时的进程号
     "last_ptime": -1,  # 最后一次运行时的进程创建时间
+    "screenshot_persist_history": False,  # 截图历史记录与 temp_doc 保留
 }
 
 _Errors = {}  # 记录读写预配置文件的异常情况
@@ -55,7 +56,8 @@ def readConfigs():
         with open(_FileName, "r") as file:
             data = json.load(file)
         for key in _Configs:
-            _Configs[key] = data[key]
+            if key in data:
+                _Configs[key] = data[key]
     except PermissionError:
         _Errors[
             "Write PermissionError"

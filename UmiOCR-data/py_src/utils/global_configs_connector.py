@@ -4,6 +4,7 @@ import os
 from PySide2.QtCore import QObject, Slot
 
 from . import app_opengl
+from . import pre_configs
 from .i18n_configs import I18n
 from ..platform import Platform
 from .pre_configs import getErrorStr
@@ -45,6 +46,16 @@ class GlobalConfigsConnector(QObject):
     @Slot(str)
     def setOpengl(self, opt):
         app_opengl.setOpengl(opt)
+
+    # 获取截图历史持久化开关
+    @Slot(result=bool)
+    def getScreenshotPersistHistory(self):
+        return bool(pre_configs.getValue("screenshot_persist_history"))
+
+    # 设置截图历史持久化开关
+    @Slot(bool)
+    def setScreenshotPersistHistory(self, flag):
+        pre_configs.setValue("screenshot_persist_history", bool(flag))
 
     # 修改日志级别，成功返回T
     @Slot(str, result=bool)

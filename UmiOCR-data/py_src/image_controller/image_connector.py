@@ -2,7 +2,7 @@
 # =============== 图片处理连接器 ===============
 # =============================================
 
-from .image_provider import copyImage, saveImage, openImage
+from .image_provider import copyImage, saveImage, openImage, saveImageToHistory
 from .screenshot_controller import ScreenshotController
 
 from PySide2.QtCore import QObject, Slot, Signal
@@ -38,3 +38,8 @@ class ImageConnector(QObject):
     @Slot(str, str, result=str)
     def saveImage(self, fromPath, toPath):
         return saveImage(fromPath, toPath)
+
+    # 将图片保存到截图历史目录
+    @Slot(str, result=str)
+    def saveImageToHistory(self, fromPath):
+        return saveImageToHistory(fromPath)

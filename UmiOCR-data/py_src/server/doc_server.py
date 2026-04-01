@@ -16,6 +16,7 @@ from .ocr_server import get_ocr_options
 from ..ocr.output import Output
 from ..mission.mission_doc import MissionDOC, DocSuf
 from ..utils.utils import initConfigDict
+from ..utils import pre_configs
 from ..ocr.output.tools import getDataText
 
 UPLOAD_DIR = "./temp_doc"  # 上传文件临时目录
@@ -384,8 +385,11 @@ _DocUnitManager = _DocUnitManagerClass()
 def init(UmiWeb):
     # 清空上传文件目录内容
     if os.path.exists(UPLOAD_DIR):
-        shutil.rmtree(UPLOAD_DIR)
-    os.makedirs(UPLOAD_DIR)
+        if not pre_configs.getValue("screenshot_persist_history"):
+            shutil.rmtree(UPLOAD_DIR)
+            os.makedirs(UPLOAD_DIR)
+    else:
+        os.makedirs(UPLOAD_DIR)
     # 启动自动清理循环
     _DocUnitManager.auto_clear()
 

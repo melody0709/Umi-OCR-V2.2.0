@@ -20,6 +20,15 @@ git clone --single-branch --branch [分支名] https://github.com/hiroi-sora/Umi
 
 # 更新日志 CHANGE LOG
 
+### v2.1.9 `2026.4.1`
+- 新增：全局设置「保留截图历史记录」开关。
+  - 开启后，重启软件时保留截图页 OCR 历史记录，并且启动时不再清空 `temp_doc`。
+  - 关闭后，恢复原有逻辑；下次启动时清空截图历史和 `temp_doc`。
+- 新增：截图历史记录现在会同步保存对应截图文件。
+  - 截图图片将保存到 `UmiOCR-data/temp_doc/screenshot_history/`。
+  - 点击截图页中的某条历史 OCR 记录时，左侧预览窗口会自动切换到对应截图，并恢复该条记录的 OCR 文本框。
+- 优化：新增启动级预配置项，兼容旧版 `.pre_settings` 文件，避免升级后因缺少新键导致配置读取异常。
+
 ### v2.1.8 `2026.4.1`
 - 新增：保留并落地在线版面解析返回的 `markdown.images`（PaddleOCR-VL / PaddleOCR-VL-1.5 / PP-StructureV3）
   - 图片将保存至 `UmiOCR-data/temp_doc/ai_ocr_markdown/<请求目录>/page_xxxx/...`，Markdown 中的图片引用会被重写为可渲染形式。
