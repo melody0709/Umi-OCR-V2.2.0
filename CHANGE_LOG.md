@@ -20,6 +20,16 @@ git clone --single-branch --branch [分支名] https://github.com/hiroi-sora/Umi
 
 # 更新日志 CHANGE LOG
 
+### v2.1.8 `2026.4.1`
+- 新增：保留并落地在线版面解析返回的 `markdown.images`（PaddleOCR-VL / PaddleOCR-VL-1.5 / PP-StructureV3）
+  - 图片将保存至 `UmiOCR-data/temp_doc/ai_ocr_markdown/<请求目录>/page_xxxx/...`，Markdown 中的图片引用会被重写为可渲染形式。
+- 新增：任务级设置「Markdown 图片内嵌」开关（默认开启），用于切换图片渲染策略：
+  - 开启：将 markdown 图片改写为 base64 data URI（更兼容 VSCode 的 Markdown Preview Enhanced 预览）；同时仍会把图片落盘并在 HTML img 中保留 `data-umi-local-src="file:///..."` 元数据以便后续获取。
+  - 关闭：使用本地 `file:///` 链接（更适合 Obsidian 等本地 Markdown 工具），不再额外内联 data URI。
+- 修复：修复了在线 API 返回的 Markdown 图片在复制/快速识别（quick_ocr）路径中丢失的问题；截图/结果复制和 CLI 快速识别现在会包含图片引用或内联图片。
+- 优化：内联模式下仍保留本地文件以便后续导出/下载，且对路径做了安全检查，避免写出越界目录。
+- 注意：本次修改仅影响截图/结果复制与 quick_ocr 的 Markdown 输出路径，批量文档导出（`output_md` / 文档服务）留作后续按需扩展。
+
 ### v2.1.7 `2026.4.1`
 
 分支名：`main`

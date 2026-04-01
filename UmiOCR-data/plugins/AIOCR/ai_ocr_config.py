@@ -555,6 +555,12 @@ localOptions = {
         "default": False,
         "toolTip": tr("启用后，所有 AI 接口都返回 markdown 格式，保留原文排版结构。"),
     },
+
+    "markdown_inline_images": {
+        "title": tr("Markdown 图片内嵌"),
+        "default": True,
+        "toolTip": tr("启用后，将 markdown 图片改写为 base64 data URI，便于 VSCode 预览显示；关闭后，改写为本地 file:/// 链接，更适合 Obsidian 等本地 Markdown 工具。"),
+    },
     
     "image_quality": {
         "title": tr("图像质量"),

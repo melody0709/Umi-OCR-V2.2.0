@@ -5,6 +5,7 @@ import json
 import base64
 import time
 import re
+import uuid
 import threading
 import concurrent.futures
 from io import BytesIO
@@ -55,6 +56,299 @@ class BaseProvider:
     def parse_response(self, response_text):
         """解析响应"""
         raise NotImplementedError
+
+    def _should_inline_markdown_images(self, config=None):
+        """是否将 markdown 图片改写为 data URI"""
+        if isinstance(config, dict):
+            return config.get("markdown_inline_images", True)
+        return True
+
+    def _get_markdown_temp_root(self):
+        """获取 markdown 附图落地目录"""
+        temp_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "temp_doc", "ai_ocr_markdown")
+        )
+        os.makedirs(temp_root, exist_ok=True)
+        return temp_root
+
+    def _create_markdown_request_dir(self):
+        """为单次 OCR 请求创建独立目录，避免文件名冲突"""
+        folder_name = f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        request_dir = os.path.join(self._get_markdown_temp_root(), folder_name)
+        os.makedirs(request_dir, exist_ok=True)
+        return request_dir
+
+    def _sanitize_markdown_image_path(self, image_key):
+        """规范化 markdown 图片相对路径，防止越界写入"""
+        if not isinstance(image_key, str):
+            raise ValueError("markdown 图片键名不是字符串")
+
+        normalized = urllib.parse.unquote(image_key.strip().replace("\\", "/"))
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        normalized = normalized.lstrip("/")
+
+        parts = []
+        for part in normalized.split("/"):
+            if not part or part == ".":
+                continue
+            if part == "..":
+                raise ValueError("markdown 图片路径包含上级目录")
+
+            safe_part = re.sub(r'[<>:"|?*]', "_", part).rstrip(" .")
+            if not safe_part:
+                safe_part = "_"
+            parts.append(safe_part)
+
+        if not parts:
+            raise ValueError("markdown 图片路径为空")
+        return os.path.join(*parts)
+
+    def _decode_base64_bytes(self, payload):
+        """解码 base64 图片数据，兼容缺失补位"""
+        normalized = "".join(payload.strip().split())
+        if not normalized:
+            raise ValueError("base64 图片数据为空")
+
+        padding = len(normalized) % 4
+        if padding:
+            normalized += "=" * (4 - padding)
+
+        try:
+            return base64.b64decode(normalized)
+        except Exception:
+            try:
+                return base64.urlsafe_b64decode(normalized)
+            except Exception as e:
+                raise ValueError(f"base64 解码失败: {e}")
+
+    def _download_markdown_image_bytes(self, image_url):
+        """下载远程图片数据"""
+        if self.proxy_url and self.proxy_url.startswith(("http://", "https://")):
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({
+                    "http": self.proxy_url,
+                    "https": self.proxy_url,
+                })
+            )
+        else:
+            opener = urllib.request.build_opener()
+
+        request = urllib.request.Request(image_url, headers={"User-Agent": "Umi-OCR/2.1.6"})
+        with opener.open(request, timeout=self.timeout) as response:
+            return response.read()
+
+    def _get_markdown_image_bytes(self, image_data):
+        """获取 markdown 图片字节，兼容 base64、data URL、远程 URL"""
+        if isinstance(image_data, bytes):
+            return image_data
+        if not isinstance(image_data, str):
+            raise ValueError("markdown 图片数据类型无效")
+
+        image_data = image_data.strip()
+        if not image_data:
+            raise ValueError("markdown 图片数据为空")
+
+        if image_data.startswith("data:"):
+            comma_index = image_data.find(",")
+            if comma_index < 0:
+                raise ValueError("data URL 缺少分隔符")
+            meta = image_data[:comma_index]
+            payload = image_data[comma_index + 1 :]
+            if ";base64" in meta:
+                return self._decode_base64_bytes(payload)
+            return urllib.parse.unquote_to_bytes(payload)
+
+        parsed = urllib.parse.urlparse(image_data)
+        if parsed.scheme in ("http", "https", "file"):
+            return self._download_markdown_image_bytes(image_data)
+
+        return self._decode_base64_bytes(image_data)
+
+    def _to_file_uri(self, abs_path):
+        """将本地绝对路径转换为 VSCode 可识别的 file URI"""
+        normalized = os.path.abspath(abs_path).replace("\\", "/")
+        return "file:///" + urllib.parse.quote(normalized, safe="/:")
+
+    def _guess_image_mime_type(self, image_path):
+        """根据文件扩展名推断图片 MIME 类型"""
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
+            ".avif": "image/avif",
+        }
+        return mime_map.get(ext, "image/jpeg")
+
+    def _build_data_uri(self, image_bytes, mime_type):
+        """构建 data URI，兼容 MPE 这类受限 webview 预览"""
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
+
+    def _register_markdown_image_aliases(self, image_uri_map, image_key, image_ref):
+        """为同一张图片注册常见路径别名，便于重写 markdown 引用"""
+        raw = image_key.strip()
+        normalized = raw.replace("\\", "/")
+        unquoted = urllib.parse.unquote(normalized)
+        aliases = set()
+
+        for candidate in (raw, normalized, unquoted):
+            if not candidate:
+                continue
+            aliases.add(candidate)
+
+            candidate_no_prefix = candidate[2:] if candidate.startswith("./") else candidate.lstrip("/")
+            if candidate_no_prefix:
+                aliases.add(candidate_no_prefix)
+                aliases.add("./" + candidate_no_prefix)
+                aliases.add(urllib.parse.quote(candidate_no_prefix, safe="/"))
+                aliases.add("./" + urllib.parse.quote(candidate_no_prefix, safe="/"))
+
+            aliases.add(urllib.parse.quote(candidate, safe="/"))
+
+        for alias in aliases:
+            image_uri_map[alias] = image_ref
+
+    def _resolve_markdown_image_ref(self, image_src, image_uri_map):
+        """按多种路径形态查找图片引用信息"""
+        if not image_src:
+            return None
+
+        normalized = image_src.strip().replace("\\", "/")
+        unquoted = urllib.parse.unquote(normalized)
+        candidates = []
+        for candidate in (image_src.strip(), normalized, unquoted):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+            if candidate.startswith("./"):
+                candidate = candidate[2:]
+            else:
+                candidate = candidate.lstrip("/")
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+                candidates.append("./" + candidate)
+
+        for candidate in candidates:
+            if candidate in image_uri_map:
+                return image_uri_map[candidate]
+        return None
+
+    def _rewrite_markdown_image_sources(self, markdown_text, image_uri_map):
+        """将 markdown 中的图片引用重写为可渲染 URI，并保留本地路径元数据"""
+        if not markdown_text or not image_uri_map:
+            return markdown_text
+
+        html_img_pattern = re.compile(
+            r'(<img\b[^>]*\bsrc\s*=\s*)(["\'])([^"\']+)(\2)',
+            flags=re.IGNORECASE,
+        )
+        markdown_img_pattern = re.compile(r'(!\[[^\]]*\]\()([^\)]+?)(\))')
+
+        def replace_html(match):
+            image_ref = self._resolve_markdown_image_ref(match.group(3), image_uri_map)
+            if not image_ref:
+                return match.group(0)
+            render_uri = image_ref["render_uri"]
+            file_uri = image_ref["file_uri"]
+            rewritten = f"{match.group(1)}{match.group(2)}{render_uri}{match.group(4)}"
+            if image_ref.get("keep_local_meta"):
+                rewritten += f' data-umi-local-src="{file_uri}"'
+            return rewritten
+
+        def replace_markdown(match):
+            image_ref = self._resolve_markdown_image_ref(match.group(2), image_uri_map)
+            if not image_ref:
+                return match.group(0)
+            return f"{match.group(1)}{image_ref['render_uri']}{match.group(3)}"
+
+        rewritten = html_img_pattern.sub(replace_html, markdown_text)
+        return markdown_img_pattern.sub(replace_markdown, rewritten)
+
+    def _materialize_markdown_images(self, markdown_text, markdown_images, request_dir, page_index, config=None):
+        """将 markdown.images 落地到 temp_doc，并返回重写后的 markdown 文本"""
+        if not isinstance(markdown_text, str) or not isinstance(markdown_images, dict):
+            return markdown_text
+        if not markdown_images:
+            return markdown_text
+
+        page_dir = os.path.abspath(os.path.join(request_dir, f"page_{page_index + 1:04d}"))
+        image_uri_map = {}
+        inline_images = self._should_inline_markdown_images(config)
+        for image_key, image_data in markdown_images.items():
+            try:
+                relative_path = self._sanitize_markdown_image_path(image_key)
+                save_path = os.path.abspath(os.path.join(page_dir, relative_path))
+                if os.path.commonpath([page_dir, save_path]) != page_dir:
+                    raise ValueError("图片路径越界")
+
+                image_bytes = self._get_markdown_image_bytes(image_data)
+                if not image_bytes:
+                    raise ValueError("图片内容为空")
+
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                with open(save_path, "wb") as f:
+                    f.write(image_bytes)
+
+                file_uri = self._to_file_uri(save_path)
+                if inline_images:
+                    render_uri = self._build_data_uri(
+                        image_bytes, self._guess_image_mime_type(save_path)
+                    )
+                else:
+                    render_uri = file_uri
+                self._register_markdown_image_aliases(
+                    image_uri_map,
+                    image_key,
+                    {
+                        "render_uri": render_uri,
+                        "file_uri": file_uri,
+                        "keep_local_meta": inline_images,
+                    },
+                )
+            except Exception as e:
+                print(f"[AIOCR] Markdown 图片落地失败：{image_key} ({e})")
+
+        return self._rewrite_markdown_image_sources(markdown_text, image_uri_map)
+
+    def _parse_layout_markdown_response(self, response_text, error_prefix, config=None):
+        """解析带 markdown/images 的版面解析响应"""
+        try:
+            data = json.loads(response_text)
+            if data.get("errorCode") != 0:
+                raise Exception(data.get("errorMsg") or "API错误")
+
+            result = data.get("result", {})
+            layout_results = result.get("layoutParsingResults", [])
+            if not layout_results:
+                return ""
+
+            parts = []
+            request_dir = None
+            for page_index, page in enumerate(layout_results):
+                md = page.get("markdown", {})
+                if not isinstance(md, dict):
+                    continue
+
+                txt = md.get("text")
+                if not isinstance(txt, str) or not txt.strip():
+                    continue
+
+                images = md.get("images")
+                if isinstance(images, dict) and images:
+                    if request_dir is None:
+                        request_dir = self._create_markdown_request_dir()
+                    txt = self._materialize_markdown_images(txt, images, request_dir, page_index, config)
+
+                parts.append(txt.strip())
+
+            return "\n\n".join(parts) if parts else ""
+        except Exception as e:
+            raise Exception(f"{error_prefix}: {str(e)}")
 
 # OpenAI Provider
 class OpenAIProvider(BaseProvider):
@@ -975,25 +1269,8 @@ class PaddleVLProvider(BaseProvider):
         payload = {**required_payload, **optional_payload}
         return payload
 
-    def parse_response(self, response_text):
-        try:
-            data = json.loads(response_text)
-            if data.get("errorCode") != 0:
-                raise Exception(data.get("errorMsg") or "API错误")
-            result = data.get("result", {})
-            pages = result.get("layoutParsingResults", [])
-            if not pages:
-                return ""
-            parts = []
-            for p in pages:
-                md = p.get("markdown", {})
-                txt = md.get("text") if isinstance(md, dict) else None
-                if isinstance(txt, str) and txt.strip():
-                    parts.append(txt.strip())
-            result_text = "\n\n".join(parts) if parts else ""
-            return result_text
-        except Exception as e:
-            raise Exception(f"解析PaddleOCR-VL响应失败: {str(e)}")
+    def parse_response(self, response_text, config=None):
+        return self._parse_layout_markdown_response(response_text, "解析PaddleOCR-VL响应失败", config)
 
 
 class PaddleVL15Provider(BaseProvider):
@@ -1024,25 +1301,8 @@ class PaddleVL15Provider(BaseProvider):
         payload = {**required_payload, **optional_payload}
         return payload
 
-    def parse_response(self, response_text):
-        try:
-            data = json.loads(response_text)
-            if data.get("errorCode") != 0:
-                raise Exception(data.get("errorMsg") or "API错误")
-            result = data.get("result", {})
-            pages = result.get("layoutParsingResults", [])
-            if not pages:
-                return ""
-            parts = []
-            for p in pages:
-                md = p.get("markdown", {})
-                txt = md.get("text") if isinstance(md, dict) else None
-                if isinstance(txt, str) and txt.strip():
-                    parts.append(txt.strip())
-            result_text = "\n\n".join(parts) if parts else ""
-            return result_text
-        except Exception as e:
-            raise Exception(f"解析PaddleOCR-VL-1.5响应失败: {str(e)}")
+    def parse_response(self, response_text, config=None):
+        return self._parse_layout_markdown_response(response_text, "解析PaddleOCR-VL-1.5响应失败", config)
 
 
 # PP-StructureV3 Provider (在线)
@@ -1080,25 +1340,8 @@ class PPStructureV3Provider(BaseProvider):
         payload = {**required_payload, **optional_payload}
         return payload
 
-    def parse_response(self, response_text):
-        try:
-            data = json.loads(response_text)
-            if data.get("errorCode") != 0:
-                raise Exception(data.get("errorMsg") or "API错误")
-            result = data.get("result", {})
-            layout_results = result.get("layoutParsingResults", [])
-            if not layout_results:
-                return ""
-            parts = []
-            for res in layout_results:
-                md = res.get("markdown", {})
-                txt = md.get("text") if isinstance(md, dict) else None
-                if isinstance(txt, str) and txt.strip():
-                    parts.append(txt.strip())
-            result_text = "\n\n".join(parts) if parts else ""
-            return result_text
-        except Exception as e:
-            raise Exception(f"解析PP-StructureV3响应失败: {str(e)}")
+    def parse_response(self, response_text, config=None):
+        return self._parse_layout_markdown_response(response_text, "解析PP-StructureV3响应失败", config)
 
 
 # Provider工厂
@@ -1790,7 +2033,7 @@ class Api:
         # 4) 发送请求并解析为统一格式（稳健映射：文本由AI，坐标用Paddle）
         try:
             response_text = self._send_request(image_base64, prompt)
-            parsed = self.provider.parse_response(response_text)
+            parsed = self._parse_provider_response(response_text, self.local_config)
             # 4.1 获取AI纠正的纯文本行（不依赖坐标结构）
             text_only = self._convert_to_umi_format(parsed, {"output_format": "text_only"})
             ai_lines = []
@@ -2057,6 +2300,23 @@ class Api:
             self.processed_size = self.original_size
             self.scale_ratio = 1.0
             return image_base64
+
+    def _merge_request_config(self, config=None):
+        """合并当前任务配置与单次请求配置"""
+        merged = {}
+        if isinstance(getattr(self, 'local_config', None), dict):
+            merged.update(self.local_config)
+        if isinstance(config, dict):
+            merged.update(config)
+        return merged
+
+    def _parse_provider_response(self, response_text, config=None):
+        """按服务商特性解析响应，避免请求级配置串值到其他任务"""
+        merged_config = self._merge_request_config(config)
+        provider_name = getattr(self.provider, 'provider_name', '')
+        if provider_name in ["paddle_vl", "paddle_vl_15", "pp_structure_v3"]:
+            return self.provider.parse_response(response_text, merged_config)
+        return self.provider.parse_response(response_text)
     
     def _run_ocr(self, image_base64, config):
         """执行OCR识别"""
@@ -2072,7 +2332,7 @@ class Api:
                     response_text = self._send_request(image_base64, prompt)
                     
                     # 解析响应
-                    parsed_content = self.provider.parse_response(response_text)
+                    parsed_content = self._parse_provider_response(response_text, config)
                     
                     if parsed_content:
                         # 转换为Umi格式
