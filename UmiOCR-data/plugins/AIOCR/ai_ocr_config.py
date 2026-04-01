@@ -82,6 +82,10 @@ PROVIDER_CONFIGS = {
         "api_base": "",
         "model": "",
     },
+    "pp_structure_v3_local": {
+        "api_base": "",
+        "model": "local",
+    },
 }
 
 # 获取服务商默认配置的辅助函数
@@ -143,6 +147,7 @@ globalOptions = {
             ["paddle_vl", "PaddleOCR-VL (在线)"],
             ["paddle_vl_15", "PaddleOCR-VL-1.5 (在线)"],
             ["pp_structure_v3", "PP-StructureV3 (在线)"],
+            ["pp_structure_v3_local", "PP-StructureV3 (本地)"],
 
         ],
         "toolTip": tr("选择当前要使用的AI服务商。所有服务商的配置都会保存，切换时无需重新输入。"),
@@ -171,6 +176,7 @@ globalOptions = {
             ["paddle_vl", "PaddleOCR-VL (在线)"],
             ["paddle_vl_15", "PaddleOCR-VL-1.5 (在线)"],
             ["pp_structure_v3", "PP-StructureV3 (在线)"],
+            ["pp_structure_v3_local", "PP-StructureV3 (本地)"],
         ],
         "toolTip": tr("选择备用AI服务商。配合第二快捷键使用，可与主服务商同时运行。"),
     },
@@ -444,6 +450,39 @@ globalOptions = {
         "type": "text",
         "toolTip": tr("请输入PP-StructureV3的完整API URL，访问 https://aistudio.baidu.com/paddleocr/task 获取"),
     },
+    "pp_structure_v3_local_python_path": {
+        "title": tr("PP-StructureV3（本地）Python路径"),
+        "default": "",
+        "type": "text",
+        "advanced": True,
+        "toolTip": tr("本地 provider 最关键的配置项。若当前 Umi-OCR 运行环境未安装 paddlepaddle 与 paddleocr[doc-parser]，则必须填写已安装依赖的 python.exe 路径；通常可填 Conda 或系统 Python。"),
+    },
+    "pp_structure_v3_local_device": {
+        "title": tr("PP-StructureV3（本地）设备"),
+        "default": "cpu",
+        "type": "text",
+        "advanced": True,
+        "toolTip": tr("本地推理设备。通常保持默认 cpu；只有你确认本机 Paddle 环境支持 GPU 时才改为 gpu:0 等值。"),
+    },
+    "pp_structure_v3_local_ocr_version": {
+        "title": tr("PP-StructureV3（本地）OCR版本"),
+        "default": "PP-OCRv5",
+        "type": "text",
+        "advanced": True,
+        "toolTip": tr("本地 PP-StructureV3 使用的 OCR 子模型版本。通常保持默认 PP-OCRv5，不需要手动改。"),
+    },
+    "pp_structure_v3_local_prettify_markdown": {
+        "title": tr("PP-StructureV3（本地）美化 Markdown"),
+        "default": True,
+        "advanced": True,
+        "toolTip": tr("建议保持开启。启用后，沿用 Paddle 官方 pretty markdown 输出，图片和表格会保留更接近文档排版的 HTML/Markdown 结构。"),
+    },
+    "pp_structure_v3_local_show_formula_number": {
+        "title": tr("PP-StructureV3（本地）显示公式编号"),
+        "default": False,
+        "advanced": True,
+        "toolTip": tr("可选项。仅当你希望 Markdown 中显式保留公式编号时再开启。"),
+    },
 
     # PaddleOCR系列并发数配置
     "paddle_max_concurrent": {
@@ -477,13 +516,13 @@ globalOptions = {
         "advanced": True,
     },
     "pp_structure_v3_max_concurrent": {
-        "title": tr("PP-StructureV3 并发数"),
+        "title": tr("PP-StructureV3（在线）并发数"),
         "default": 5,
         "min": 1,
         "max": 20,
         "unit": tr("个"),
         "isInt": True,
-        "toolTip": tr("PP-StructureV3批量处理时的最大并发请求数。"),
+        "toolTip": tr("仅在线 PP-StructureV3 provider 生效；本地 provider 当前固定为单进程串行执行。"),
         "advanced": True,
     },
 

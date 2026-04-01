@@ -40,7 +40,13 @@ class Translator:
                         else:
                             index = 1  # 找不到对应语言，默认英文
                     for row in csv_reader:
-                        self._trDict[row[0]] = row[index]
+                        if not row:
+                            continue
+                        key = row[0].strip()
+                        if not key:
+                            continue
+                        value = row[index] if len(row) > index and row[index] else key
+                        self._trDict[key] = value
         except Exception:
             logger.error(
                 f"加载插件翻译失败。 file: {file}, name: {name}",

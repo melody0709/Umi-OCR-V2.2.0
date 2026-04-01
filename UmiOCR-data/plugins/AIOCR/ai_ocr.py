@@ -14,9 +14,13 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import os
+import shutil
 import importlib.util
+import subprocess
 import sys
 import types
+
+from .pp_structure_v3_local_client import PPStructureV3LocalClient
 
 def remove_image_tags(text):
     """移除文本中的所有HTML标签"""
@@ -1344,6 +1348,29 @@ class PPStructureV3Provider(BaseProvider):
         return self._parse_layout_markdown_response(response_text, "解析PP-StructureV3响应失败", config)
 
 
+class PPStructureV3LocalProvider(BaseProvider):
+    """PP-StructureV3本地服务提供商 - 通过本地子进程复用 AIOCR Markdown 流程"""
+
+    def get_default_api_base(self):
+        return ""
+
+    def get_default_model(self):
+        return "local"
+
+    def build_headers(self):
+        return {}
+
+    def build_payload(self, image_base64, prompt):
+        return {
+            "file": image_base64,
+            "fileType": 1,
+            "prompt": prompt,
+        }
+
+    def parse_response(self, response_text, config=None):
+        return self._parse_layout_markdown_response(response_text, "解析本地 PP-StructureV3 响应失败", config)
+
+
 # Provider工厂
 class ProviderFactory:
     @staticmethod
@@ -1368,6 +1395,7 @@ class ProviderFactory:
             "paddle_vl": PaddleVLProvider,  # 新增：PaddleOCR-VL Provider
             "paddle_vl_15": PaddleVL15Provider,  # 新增：PaddleOCR-VL-1.5 Provider
             "pp_structure_v3": PPStructureV3Provider,  # 新增：PP-StructureV3 Provider
+            "pp_structure_v3_local": PPStructureV3LocalProvider,  # 新增：PP-StructureV3 本地 Provider
 
         }
         
@@ -1660,6 +1688,10 @@ class Api:
         self.scale_ratio = 1.0     # 保存缩放比例
         # 检测-识别双通道：PaddleOCR 检测器句柄
         self.detector = None
+        self.local_pp_structure_client = None
+        self.local_pp_structure_client_signature = None
+        self.local_pp_structure_python_cache_key = None
+        self.local_pp_structure_python_path = None
         
         # 兼容新旧键名：a_provider 或 provider
         provider = self.global_config.get('a_provider') or self.global_config.get('provider')
@@ -1686,12 +1718,16 @@ class Api:
             # 兼容新旧键名
             timeout = self.global_config.get("a_timeout", self.global_config.get("timeout", 30))
             proxy_url = self.global_config.get("z_proxy_url", self.global_config.get("proxy_url", ""))
+
+            if provider_name == "pp_structure_v3_local":
+                api_key = api_key or "__local__"
+                model = model or "local"
             
             # 对于本地服务（Ollama、LM Studio），API密钥可以为空
-            if not api_key and provider_name not in ["ollama", "lmstudio"]:
+            if not api_key and provider_name not in ["ollama", "lmstudio", "pp_structure_v3_local"]:
                 return f"[Error] {provider_name} 的API密钥不能为空，请在设置中配置"
             
-            if not model:
+            if not model and provider_name != "pp_structure_v3_local":
                 return f"[Error] {provider_name} 的模型不能为空，请在设置中配置"
             
             # 创建Provider，如果用户配置了自定义API地址则使用，否则使用默认值
@@ -1743,6 +1779,8 @@ class Api:
                 max_workers = self.global_config.get("paddle_vl_15_max_concurrent", 5)
             elif provider_name == "pp_structure_v3":
                 max_workers = self.global_config.get("pp_structure_v3_max_concurrent", 5)
+            elif provider_name == "pp_structure_v3_local":
+                max_workers = 1
             else:
                 max_workers = self.max_concurrent
             
@@ -1761,12 +1799,207 @@ class Api:
         if self.executor:
             self.executor.shutdown(wait=True)
             self.executor = None
+        self._stop_local_pp_structure_client()
         # 关闭 PaddleOCR 检测器（若存在）
         try:
             if hasattr(self, 'detector') and self.detector and hasattr(self.detector, 'stop'):
                 self.detector.stop()
         except Exception:
             pass
+
+    def _stop_local_pp_structure_client(self):
+        try:
+            if self.local_pp_structure_client:
+                self.local_pp_structure_client.stop()
+        except Exception:
+            pass
+        self.local_pp_structure_client = None
+        self.local_pp_structure_client_signature = None
+
+    def _normalize_local_python_path(self, python_path):
+        python_path = (python_path or "").strip()
+        if not python_path:
+            return ""
+        python_path = os.path.expandvars(os.path.expanduser(python_path))
+        if not os.path.isabs(python_path):
+            python_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), python_path)
+            )
+        return python_path
+
+    def _probe_local_pp_structure_python(self, python_path):
+        startupinfo = None
+        creationflags = 0
+        if sys.platform.startswith("win"):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        try:
+            result = subprocess.run(
+                [
+                    python_path,
+                    "-c",
+                    "from paddleocr import PPStructureV3; print('PPSTRUCTURE_LOCAL_IMPORT_OK')",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                startupinfo=startupinfo,
+                creationflags=creationflags,
+            )
+        except Exception as e:
+            return False, f"执行探测失败：{e}"
+
+        if result.returncode == 0 and "PPSTRUCTURE_LOCAL_IMPORT_OK" in (result.stdout or ""):
+            return True, ""
+
+        details = (result.stderr or result.stdout or "").strip()
+        if not details:
+            details = f"退出码：{result.returncode}"
+        return False, details
+
+    def _resolve_local_pp_structure_python(self):
+        configured_python = self._normalize_local_python_path(
+            self.global_config.get("pp_structure_v3_local_python_path")
+        )
+        cache_key = configured_python or "__auto__"
+        if (
+            self.local_pp_structure_python_cache_key == cache_key
+            and self.local_pp_structure_python_path
+            and os.path.isfile(self.local_pp_structure_python_path)
+        ):
+            return self.local_pp_structure_python_path
+
+        candidate_items = []
+
+        if configured_python:
+            candidate_items.append(("用户配置", configured_python))
+        else:
+            current_python = os.path.abspath(sys.executable) if sys.executable else ""
+            current_name = os.path.basename(current_python).lower()
+            if current_python and current_name.startswith("python"):
+                candidate_items.append(("当前解释器", current_python))
+
+            conda_python = self._normalize_local_python_path(os.environ.get("CONDA_PYTHON_EXE", ""))
+            if conda_python:
+                candidate_items.append(("Conda 环境", conda_python))
+
+            for label, candidate in (
+                ("PATH 中的 python.exe", shutil.which("python.exe") or ""),
+                ("PATH 中的 python", shutil.which("python") or ""),
+            ):
+                normalized = self._normalize_local_python_path(candidate)
+                if normalized:
+                    candidate_items.append((label, normalized))
+
+            runtime_python = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "runtime", "python.exe")
+            )
+            candidate_items.append(("Umi-OCR 内置运行时", runtime_python))
+
+        seen = set()
+        failures = []
+        for source_label, candidate in candidate_items:
+            if not candidate:
+                continue
+            candidate = os.path.abspath(candidate)
+            lowered = candidate.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+
+            if not os.path.isfile(candidate):
+                failures.append(f"{source_label}: {candidate}（文件不存在）")
+                continue
+
+            ok, details = self._probe_local_pp_structure_python(candidate)
+            if ok:
+                self.local_pp_structure_python_cache_key = cache_key
+                self.local_pp_structure_python_path = candidate
+                return candidate
+
+            failures.append(f"{source_label}: {candidate}\n{details}")
+
+        guidance = (
+            "本地 PP-StructureV3 需要一个已安装 paddlepaddle 与 paddleocr[doc-parser] 的 python.exe。"
+            "\n请在“PP-StructureV3（本地）Python路径”中填写可用的 python.exe，例如 C:/ProgramData/miniconda3/python.exe。"
+        )
+        if configured_python:
+            guidance = (
+                "当前填写的“PP-StructureV3（本地）Python路径”不可用。"
+                "\n请确认该 python.exe 已安装 paddlepaddle 与 paddleocr[doc-parser]。"
+            )
+
+        detail_text = "\n\n".join(failures[:4]) if failures else "未找到可用候选项。"
+        raise RuntimeError(f"{guidance}\n\n探测结果：\n{detail_text}")
+
+    def _get_local_pp_structure_client(self):
+        configured_python = self._resolve_local_pp_structure_python()
+
+        runner_script = os.path.join(os.path.dirname(__file__), "pp_structure_v3_local_runner.py")
+        signature = json.dumps(
+            {
+                "python": os.path.abspath(configured_python),
+                "runner": os.path.abspath(runner_script),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+        if (
+            not self.local_pp_structure_client
+            or self.local_pp_structure_client_signature != signature
+        ):
+            self._stop_local_pp_structure_client()
+            self.local_pp_structure_client = PPStructureV3LocalClient(
+                configured_python,
+                runner_script,
+            )
+            self.local_pp_structure_client_signature = signature
+
+        return self.local_pp_structure_client
+
+    def _send_local_pp_structure_request(self, image_base64, config=None):
+        request_config = self._merge_request_config(config)
+        language = request_config.get("language", "auto")
+
+        pipeline_init = {
+            "device": (self.global_config.get("pp_structure_v3_local_device") or "cpu").strip() or "cpu",
+            "ocr_version": (self.global_config.get("pp_structure_v3_local_ocr_version") or "PP-OCRv5").strip() or "PP-OCRv5",
+        }
+        if language and language != "auto":
+            pipeline_init["lang"] = language
+
+        predict_options = {
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": True,
+            "use_seal_recognition": False,
+            "use_table_recognition": True,
+            "use_formula_recognition": True,
+            "use_chart_recognition": False,
+            "use_region_detection": True,
+        }
+        render_options = {
+            "prettify_markdown": bool(
+                self.global_config.get("pp_structure_v3_local_prettify_markdown", True)
+            ),
+            "show_formula_number": bool(
+                self.global_config.get("pp_structure_v3_local_show_formula_number", False)
+            ),
+        }
+
+        client = self._get_local_pp_structure_client()
+        return client.infer(
+            image_base64=image_base64,
+            pipeline_init=pipeline_init,
+            predict_options=predict_options,
+            render_options=render_options,
+        )
     
     def testConnection(self):
         """测试连接"""
@@ -2217,6 +2450,10 @@ class Api:
             use_provider2 = self.local_config.get('use_provider2', False)
             if use_provider2 and self.provider2:
                 self.provider = self.provider2
+
+            provider_name = getattr(self.provider, 'provider_name', '')
+            if provider_name == 'pp_structure_v3_local':
+                return self._run_ocr(imageBase64, self.local_config)
             
             # 根据识别策略选择流程（不再需要启用开关）
             if hasattr(self, 'local_config'):
@@ -2314,7 +2551,7 @@ class Api:
         """按服务商特性解析响应，避免请求级配置串值到其他任务"""
         merged_config = self._merge_request_config(config)
         provider_name = getattr(self.provider, 'provider_name', '')
-        if provider_name in ["paddle_vl", "paddle_vl_15", "pp_structure_v3"]:
+        if provider_name in ["paddle_vl", "paddle_vl_15", "pp_structure_v3", "pp_structure_v3_local"]:
             return self.provider.parse_response(response_text, merged_config)
         return self.provider.parse_response(response_text)
     
@@ -2397,6 +2634,13 @@ class Api:
         api_base = self.provider.api_base or self.provider.get_default_api_base()
         use_p2 = self.local_config.get('use_provider2', False) if hasattr(self, 'local_config') else False
         print(f"[AIOCR] 调用 {provider_name} / 模型 {model_name} / 超时 {getattr(self.http_client, 'timeout', None)}s / 备用={use_p2} / URL基={api_base}")
+
+        if provider_name == "pp_structure_v3_local":
+            local_result = self._send_local_pp_structure_request(
+                image_base64,
+                getattr(self, 'local_config', None),
+            )
+            return json.dumps(local_result, ensure_ascii=False)
         
         if provider_name == "gemini":
             model = self.provider.model or self.provider.get_default_model()
@@ -2798,7 +3042,7 @@ class Api:
         if not markdown_output:
             # 兼容旧逻辑：paddle_vl 系列默认返回 markdown
             provider_name = self.global_config.get("a_provider", self.global_config.get("provider", ""))
-            if provider_name in ["paddle_vl", "paddle_vl_15", "pp_structure_v3"]:
+            if provider_name in ["paddle_vl", "paddle_vl_15", "pp_structure_v3", "pp_structure_v3_local"]:
                 markdown_output = True
         
         # 如果启用 markdown 输出，将其作为一个整体框返回，保留所有缩进和换行

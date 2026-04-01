@@ -35,6 +35,11 @@ This file captures the project-specific decisions that matter most for future AI
 - `markdown_inline_images = True` rewrites images to `data:` URIs for VS Code preview.
 - `markdown_inline_images = False` rewrites images to local `file:///` paths, which is better for local Markdown tools.
 - Runtime image output uses `UmiOCR-data/temp_doc/`, not repo-root `temp_doc/`.
+- Local PP-StructureV3 now lives under AIOCR as provider key `pp_structure_v3_local`.
+- The local provider reuses the existing AIOCR markdown parsing and image materialization path by returning online-style `layoutParsingResults[*].markdown` data from `pp_structure_v3_local_runner.py`.
+- The local provider currently depends on a Python environment that already has `paddlepaddle` and `paddleocr[doc-parser]` installed. The override path is `pp_structure_v3_local_python_path`.
+- The current repository implementation is validated for local/dev use. Release packaging does not yet bundle the PP-StructureV3 runtime into the distributable build.
+- Local validation entry point: `temp_doc/validate_pp_structure_v3_local.py`.
 
 ## Screenshot History Notes
 
