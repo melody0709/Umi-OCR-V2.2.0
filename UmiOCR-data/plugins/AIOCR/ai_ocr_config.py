@@ -600,6 +600,13 @@ localOptions = {
         "default": False,
         "toolTip": tr("启用后，将 markdown 图片改写为 base64 data URI，便于 VSCode 预览显示；关闭后，改写为本地 file:/// 链接，更适合 Obsidian 等本地 Markdown 工具。"),
     },
+
+    "markdown_http_server": {
+        "title": tr("Markdown 图片 HTTP 前缀"),
+        "default": "",
+        "type": "text",
+        "toolTip": tr("可选。仅在关闭“Markdown 图片内嵌”时生效。留空时保持本地 file:/// 链接；填写后，图片链接改写为“HTTP 前缀 + 绝对路径”。例如：http://127.0.0.1:28080?path="),
+    },
     
     "image_quality": {
         "title": tr("图像质量"),

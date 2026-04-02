@@ -67,6 +67,22 @@ class BaseProvider:
             return config.get("markdown_inline_images", True)
         return True
 
+    def _get_markdown_http_server(self, config=None):
+        """获取 markdown 图片 HTTP 服务前缀"""
+        if not isinstance(config, dict):
+            return ""
+
+        server_prefix = config.get("markdown_http_server", "")
+        if not isinstance(server_prefix, str):
+            return ""
+
+        server_prefix = server_prefix.strip()
+        if not server_prefix:
+            return ""
+        if not server_prefix.lower().startswith(("http://", "https://")):
+            return ""
+        return server_prefix
+
     def _get_markdown_temp_root(self):
         """获取 markdown 附图落地目录"""
         temp_root = os.path.abspath(
@@ -173,6 +189,14 @@ class BaseProvider:
         """将本地绝对路径转换为 VSCode 可识别的 file URI"""
         normalized = os.path.abspath(abs_path).replace("\\", "/")
         return "file:///" + urllib.parse.quote(normalized, safe="/:")
+
+    def _to_http_image_uri(self, abs_path, server_prefix):
+        """将本地绝对路径转换为 HTTP 图片链接"""
+        normalized = os.path.abspath(abs_path).replace("\\", "/")
+        encoded_path = urllib.parse.quote(normalized, safe="/:")
+        if "{path}" in server_prefix:
+            return server_prefix.replace("{path}", encoded_path)
+        return f"{server_prefix}{encoded_path}"
 
     def _guess_image_mime_type(self, image_path):
         """根据文件扩展名推断图片 MIME 类型"""
@@ -283,6 +307,7 @@ class BaseProvider:
         page_dir = os.path.abspath(os.path.join(request_dir, f"page_{page_index + 1:04d}"))
         image_uri_map = {}
         inline_images = self._should_inline_markdown_images(config)
+        http_server = "" if inline_images else self._get_markdown_http_server(config)
         for image_key, image_data in markdown_images.items():
             try:
                 relative_path = self._sanitize_markdown_image_path(image_key)
@@ -303,6 +328,8 @@ class BaseProvider:
                     render_uri = self._build_data_uri(
                         image_bytes, self._guess_image_mime_type(save_path)
                     )
+                elif http_server:
+                    render_uri = self._to_http_image_uri(save_path, http_server)
                 else:
                     render_uri = file_uri
                 self._register_markdown_image_aliases(
