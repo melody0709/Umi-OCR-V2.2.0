@@ -603,7 +603,7 @@ localOptions = {
 
     "markdown_http_server": {
         "title": tr("Markdown 图片 HTTP 前缀"),
-        "default": "",
+        "default": "http://127.0.0.1:28080?path=",
         "type": "text",
         "toolTip": tr("可选。仅在关闭“Markdown 图片内嵌”时生效。留空时保持本地 file:/// 链接；填写后，图片链接改写为“HTTP 前缀 + 绝对路径”。例如：http://127.0.0.1:28080?path="),
     },

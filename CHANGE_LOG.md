@@ -20,6 +20,16 @@ git clone --single-branch --branch [分支名] https://github.com/hiroi-sora/Umi
 
 # 更新日志 CHANGE LOG
 
+### v2.2.0 `2026.4.2`
+- 新增：任务级设置 `Markdown 图片 HTTP 前缀`。
+  - 当 `Markdown 图片内嵌` 开启时，仍然使用 base64 data URI。
+  - 当 `Markdown 图片内嵌` 关闭且 HTTP 前缀留空时，保持本地 `file:///` 链接。
+  - 当 `Markdown 图片内嵌` 关闭且 HTTP 前缀非空时，改写为 `HTTP 前缀 + 绝对路径`；release 默认预设为 `http://127.0.0.1:28080?path=`。
+- 新增：随包提供轻量 HTTP 图片服务 `UmiOCR-data/bin/super_light_server.exe`。
+  - Umi-OCR 启动时自动在后台拉起，退出时自动停止。
+  - Windows 下隐藏启动，不再弹出额外控制台窗口。
+- 优化：Markdown 图片 HTTP 前缀默认值内建到 AIOCR 插件配置中，release 首次启动即可直接使用，不依赖 `.settings`。
+
 ### v2.1.9 `2026.4.1`
 - 新增：全局设置「保留截图历史记录」开关。
   - 开启后，重启软件时保留截图页 OCR 历史记录，并且启动时不再清空 `temp_doc`。

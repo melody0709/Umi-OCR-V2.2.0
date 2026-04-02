@@ -46,13 +46,19 @@
 </div>
 <br>
 
-> 📌 **本版本基于原版 v2.1.5 修改**，在保留原有核心功能的基础上，新增多项实用特性。
+> 📌 **当前定制版最新版本为 v2.2.0**，基于原版 v2.1.5 持续修改，在保留原有核心功能的基础上，新增多项实用特性。
 > 
 > 🔗 **原版仓库**：[hiroi-sora/Umi-OCR](https://github.com/hiroi-sora/Umi-OCR) | [原版使用说明](https://github.com/hiroi-sora/Umi-OCR#readme)
 
 ---
 
 ## 本版本特色功能
+
+### 🌐 Markdown 图片 HTTP 服务（v2.2.0）
+
+- **新增任务级设置 `Markdown 图片 HTTP 前缀`**：默认预设为 `http://127.0.0.1:28080?path=`
+- **Markdown 图片可改写为 HTTP 链接**：当关闭“Markdown 图片内嵌”且前缀非空时，图片链接会改写为 `HTTP 前缀 + 绝对路径`
+- **内置轻量 HTTP 服务自动托管**：打包版自带 `UmiOCR-data/bin/super_light_server.exe`，软件启动时自动后台启动，退出时自动回收
 
 ### 📸 截图历史记录（v2.1.9）
 
@@ -70,7 +76,7 @@
 - 图片保存至 `UmiOCR-data/temp_doc/ai_ocr_markdown/<请求目录>/page_xxxx/...`
 - **Markdown 图片内嵌开关**（任务级设置）：
   - **开启**：将图片改写为 base64 data URI（兼容 VSCode Markdown Preview Enhanced）
-  - **关闭**：使用本地 `file:///` 链接（适合 Obsidian 等本地 Markdown 工具）
+  - **关闭**：HTTP 前缀留空时使用本地 `file:///` 链接；填写 `Markdown 图片 HTTP 前缀` 后改写为 HTTP 链接
 - 修复了在线 API 返回的 Markdown 图片在复制/快速识别路径中丢失的问题
 
 ### 🤖 双AI服务商 + 备用快捷键（v2.1.7）
@@ -241,6 +247,7 @@ OCR 结果排版解析方案，使文本更适合阅读：
 
 ### 近期版本
 
+- **v2.2.0** `2026.4.2` - Markdown 图片 HTTP 前缀、内置轻量 HTTP 服务自动启停
 - **v2.1.9** `2026.4.1` - 截图历史记录、保留截图历史开关
 - **v2.1.8** `2026.4.1` - Markdown 图片内嵌与保留
 - **v2.1.7** `2026.4.1` - 双AI服务商 + 备用快捷键

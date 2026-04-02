@@ -139,6 +139,7 @@ def main(app_path, engineAddImportPath=""):
         sys.exit(0)
 
     from .utils import pre_configs
+    from .server.super_light_server_process import SuperLightServerProcess
     from .server.cmd_client import initCmd
 
     # 安装某些软件时可能在系统中写入 QMLSCENE_DEVICE 环境变量，影响本软件的渲染方式，因此屏蔽该环境变量
@@ -148,5 +149,12 @@ def main(app_path, engineAddImportPath=""):
     pre_configs.readConfigs()  # 初始化预配置项
     if not initCmd():  # 初始化命令行，如果已有Umi-OCR在运行则结束运行
         sys.exit(0)
-    runQml(engineAddImportPath)  # 启动qml
+
+    super_light_server = SuperLightServerProcess()
+    super_light_server.start()
+    try:
+        runQml(engineAddImportPath)  # 启动qml
+    finally:
+        super_light_server.stop()
+
     sys.exit(0)

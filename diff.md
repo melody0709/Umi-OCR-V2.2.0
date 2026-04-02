@@ -1,6 +1,68 @@
-# diff.md — v2.1.9 源码修改说明
+# diff.md — v2.2.0 源码修改说明
 
-## v2.1.9 修改文件清单
+## v2.2.0 修改文件清单
+
+### 1. Markdown 图片 HTTP 前缀
+
+#### 1.1 `UmiOCR-data/plugins/AIOCR/ai_ocr_config.py`
+
+**新增**：任务级设置 `markdown_http_server`
+
+```python
+"markdown_http_server": {
+    "title": tr("Markdown 图片 HTTP 前缀"),
+    "default": "http://127.0.0.1:28080?path=",
+    "type": "text",
+}
+```
+
+作用：当 `markdown_inline_images` 关闭时，可将 Markdown 图片链接改写为 `HTTP 前缀 + 绝对路径`；留空则保持 `file:///`。
+
+#### 1.2 `UmiOCR-data/plugins/AIOCR/ai_ocr.py`
+
+**新增**：HTTP 图片链接生成逻辑。
+
+- `_get_markdown_http_server(config)`：读取并校验任务配置中的 HTTP 前缀。
+- `_to_http_image_uri(abs_path, server_prefix)`：把本地绝对路径转成 HTTP 图片链接。
+- `_materialize_markdown_images(...)`：在 `markdown_inline_images = False` 时，根据是否填写 HTTP 前缀决定输出 `file:///` 或 HTTP 链接。
+
+#### 1.3 `UmiOCR-data/plugins/AIOCR/i18n.csv`
+
+**新增**：`Markdown 图片 HTTP 前缀` 的多语言文案。
+
+---
+
+### 2. 自动托管轻量 HTTP 服务进程
+
+#### 2.1 `UmiOCR-data/py_src/server/super_light_server_process.py`
+
+**新增**：`SuperLightServerProcess` 进程管理器。
+
+功能：
+
+- 启动 `UmiOCR-data/bin/super_light_server.exe`
+- Windows 下隐藏启动，不弹控制台窗口
+- 退出时自动 `terminate` / `kill` 回收进程
+- 缺失 exe 或非 Windows 平台时自动跳过
+
+#### 2.2 `UmiOCR-data/py_src/run.py`
+
+**修改**：在主程序生命周期中接入轻量 HTTP 服务。
+
+```python
+super_light_server = SuperLightServerProcess()
+super_light_server.start()
+try:
+    runQml(engineAddImportPath)
+finally:
+    super_light_server.stop()
+```
+
+作用：Umi-OCR 启动时自动拉起后台 HTTP 服务，退出时自动关闭。
+
+---
+
+## 旧版说明（v2.1.9）
 
 ### 1. 截图历史保留开关与启动清理逻辑
 
